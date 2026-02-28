@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Post {
+  id              String    @id @default(cuid())
+  title           String
+  body            String    @default("")
+  status          String    @default("IDEA")
+  linkedinPostId  String?
+  publishedAt     DateTime?
+  topicTags       String    @default("")
+  researchBriefId String?
+  voiceScore      Float?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  researchBrief   ResearchBrief? @relation(fields: [researchBriefId], references: [id])
+  analytics       PostAnalytics[]
+  versions        PostVersion[]
+}
+
+model ResearchBrief {
+  id          String   @id @default(cuid())
+  topic       String
+  summary     String
+  keyClaims   String
+  sources     String
+  createdAt   DateTime @default(now())
+  posts       Post[]
+}
+
+model PostVersion {
+  id        String   @id @default(cuid())
+  postId    String
+  body      String
+  note      String?
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model PostAnalytics {
+  id             String   @id @default(cuid())
+  postId         String
+  snapshotAt     DateTime @default(now())
+  followerCount  Int
+  impressions    Int?
+  reactions      Int?
+  comments       Int?
+  shares         Int?
+  post           Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model FollowerSnapshot {
+  id            String   @id @default(cuid())
+  capturedAt    DateTime @default(now())
+  followerCount Int
+  source        String   @default("playwright")
+}
+
+model VoiceCorpusEntry {
+  id          String   @id @default(cuid())
+  source      String
+  title       String?
+  content     String
+  publishedAt DateTime?
+  embedding   Bytes?
+  createdAt   DateTime @default(now())
+}
+
+model ScheduledPost {
+  id          String   @id @default(cuid())
+  postId      String   @unique
+  scheduledAt DateTime
+  status      String   @default("pending")
+}
+
+model LinkedInToken {
+  id           String   @id @default(cuid())
+  accessToken  String
+  tokenIv      String
+  tokenTag     String
+  personUrn    String
+  displayName  String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
