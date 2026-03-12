@@ -13,6 +13,6 @@ export async function POST() {
     path: "/",
   });
 
-  const url = getAuthorizationUrl(state);
+  const url = await getAuthorizationUrl(state);
   return NextResponse.json({ url });
 }

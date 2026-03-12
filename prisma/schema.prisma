@@ -80,6 +80,16 @@ model ScheduledPost {
   status      String   @default("pending")
 }
 
+model AppSetting {
+  key       String   @id
+  value     String          // plaintext or ciphertext
+  iv        String?         // AES-256-GCM IV (hex), null if not encrypted
+  tag       String?         // AES-256-GCM auth tag (hex), null if not encrypted
+  encrypted Boolean @default(false)
+  group     String  @default("general")
+  updatedAt DateTime @updatedAt
+}
+
 model LinkedInToken {
   id           String   @id @default(cuid())
   accessToken  String

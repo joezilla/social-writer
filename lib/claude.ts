@@ -1,20 +1,31 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { requireSetting } from "./settings";
 
 const globalForAnthropic = globalThis as unknown as {
   anthropic: Anthropic | undefined;
+  anthropicKey: string | undefined;
 };
 
-export const anthropic =
-  globalForAnthropic.anthropic ??
-  new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+async function getClient(): Promise<Anthropic> {
+  const apiKey = await requireSetting("ANTHROPIC_API_KEY");
 
-if (process.env.NODE_ENV !== "production") globalForAnthropic.anthropic = anthropic;
+  // Recreate client if the key has changed
+  if (globalForAnthropic.anthropic && globalForAnthropic.anthropicKey === apiKey) {
+    return globalForAnthropic.anthropic;
+  }
+
+  const client = new Anthropic({ apiKey });
+  globalForAnthropic.anthropic = client;
+  globalForAnthropic.anthropicKey = apiKey;
+  return client;
+}
 
 export async function generateText(
   systemPrompt: string,
   userPrompt: string,
   maxTokens = 4096
 ): Promise<string> {
+  const anthropic = await getClient();
   const message = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: maxTokens,

@@ -1,3 +1,5 @@
+import { requireSetting } from "./settings";
+
 const OPENAI_EMBEDDING_URL = "https://api.openai.com/v1/embeddings";
 const MODEL = "text-embedding-3-small";
 const DIMENSIONS = 1536;
@@ -5,8 +7,7 @@ const DIMENSIONS = 1536;
 export { DIMENSIONS };
 
 export async function embed(texts: string[]): Promise<number[][]> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
+  const apiKey = await requireSetting("OPENAI_API_KEY");
 
   const res = await fetch(OPENAI_EMBEDDING_URL, {
     method: "POST",

@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { encrypt, decrypt } from "./encryption";
+import { requireSetting } from "./settings";
 
 const LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization";
 const LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
@@ -8,11 +9,13 @@ const LINKEDIN_POSTS_URL = "https://api.linkedin.com/rest/posts";
 
 const SCOPES = ["openid", "profile", "w_member_social"];
 
-export function getAuthorizationUrl(state: string): string {
+export async function getAuthorizationUrl(state: string): Promise<string> {
+  const clientId = await requireSetting("LINKEDIN_CLIENT_ID");
+  const redirectUri = await requireSetting("LINKEDIN_REDIRECT_URI");
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: process.env.LINKEDIN_CLIENT_ID!,
-    redirect_uri: process.env.LINKEDIN_REDIRECT_URI!,
+    client_id: clientId,
+    redirect_uri: redirectUri,
     state,
     scope: SCOPES.join(" "),
   });
@@ -20,6 +23,10 @@ export function getAuthorizationUrl(state: string): string {
 }
 
 export async function exchangeCodeForToken(code: string) {
+  const redirectUri = await requireSetting("LINKEDIN_REDIRECT_URI");
+  const clientId = await requireSetting("LINKEDIN_CLIENT_ID");
+  const clientSecret = await requireSetting("LINKEDIN_CLIENT_SECRET");
+
   // Exchange authorization code for access token
   const tokenRes = await fetch(LINKEDIN_TOKEN_URL, {
     method: "POST",
@@ -27,9 +34,9 @@ export async function exchangeCodeForToken(code: string) {
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: process.env.LINKEDIN_REDIRECT_URI!,
-      client_id: process.env.LINKEDIN_CLIENT_ID!,
-      client_secret: process.env.LINKEDIN_CLIENT_SECRET!,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      client_secret: clientSecret,
     }),
   });
 

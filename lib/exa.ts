@@ -1,3 +1,5 @@
+import { requireSetting } from "./settings";
+
 const EXA_SEARCH_URL = "https://api.exa.ai/search";
 
 export interface ExaResult {
@@ -8,8 +10,7 @@ export interface ExaResult {
 }
 
 export async function searchExa(query: string, numResults = 5): Promise<ExaResult[]> {
-  const apiKey = process.env.EXA_API_KEY;
-  if (!apiKey) throw new Error("EXA_API_KEY is not set");
+  const apiKey = await requireSetting("EXA_API_KEY");
 
   const res = await fetch(EXA_SEARCH_URL, {
     method: "POST",
