@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import Link from "next/link";
+import { auth } from "@/auth";
+import { UserNav } from "@/components/user-nav";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -19,11 +21,15 @@ export const metadata: Metadata = {
   description: "LinkedIn Content Intelligence Platform",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+  const user = session?.user;
+  const isAdmin = (user as { role?: string })?.role === "admin";
+
   return (
     <html lang="en">
       <body
@@ -37,26 +43,41 @@ export default function RootLayout({
             >
               Social Writer
             </Link>
-            <div className="flex gap-1 text-sm" role="navigation" aria-label="Main">
-              <Link
-                href="/"
-                className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus-ring"
-              >
-                Pipeline
-              </Link>
-              <Link
-                href="/analytics"
-                className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus-ring"
-              >
-                Analytics
-              </Link>
-              <Link
-                href="/settings"
-                className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus-ring"
-              >
-                Settings
-              </Link>
-            </div>
+            {user && (
+              <>
+                <div className="flex gap-1 text-sm" role="navigation" aria-label="Main">
+                  <Link
+                    href="/"
+                    className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus-ring"
+                  >
+                    Pipeline
+                  </Link>
+                  <Link
+                    href="/analytics"
+                    className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus-ring"
+                  >
+                    Analytics
+                  </Link>
+                  <Link
+                    href="/settings"
+                    className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus-ring"
+                  >
+                    Settings
+                  </Link>
+                  {isAdmin && (
+                    <Link
+                      href="/admin"
+                      className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus-ring"
+                    >
+                      Admin
+                    </Link>
+                  )}
+                </div>
+                <div className="ml-auto">
+                  <UserNav email={user.email || ""} />
+                </div>
+              </>
+            )}
           </div>
         </nav>
         <main>{children}</main>

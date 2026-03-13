@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireSetting } from "@/lib/settings";
+import { requireAdmin, AuthError } from "@/lib/auth-context";
 
 export async function POST(request: Request) {
   try {
+    await requireAdmin();
     const { key } = await request.json();
 
     if (key === "ANTHROPIC_API_KEY") {
@@ -62,6 +64,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Unsupported key for testing" }, { status: 400 });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const message = err instanceof Error ? err.message : "Test failed";
     return NextResponse.json({ ok: false, error: message });
   }

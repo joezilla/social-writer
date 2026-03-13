@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateJSON } from "@/lib/claude";
+import { requireAuth, AuthError } from "@/lib/auth-context";
 
 interface VoiceScoreResult {
   score: number;
@@ -12,22 +13,25 @@ export async function POST(
   _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const post = await prisma.post.findUnique({
-    where: { id: params.id },
-  });
+  try {
+    const { userId } = await requireAuth();
 
-  if (!post) {
-    return NextResponse.json({ error: "Post not found" }, { status: 404 });
-  }
+    const post = await prisma.post.findUnique({
+      where: { id: params.id },
+    });
 
-  if (!post.body.trim()) {
-    return NextResponse.json(
-      { error: "Post body is empty" },
-      { status: 400 }
-    );
-  }
+    if (!post || post.userId !== userId) {
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    }
 
-  const prompt = `You are evaluating whether this article draft matches a specific author's voice.
+    if (!post.body.trim()) {
+      return NextResponse.json(
+        { error: "Post body is empty" },
+        { status: 400 }
+      );
+    }
+
+    const prompt = `You are evaluating whether this article draft matches a specific author's voice.
 
 VOICE CHARACTERISTICS TO EVALUATE AGAINST:
 - Direct, analytical, concrete
@@ -47,7 +51,6 @@ Return JSON only, no other text:
   "reasoning": "<one sentence explanation>"
 }`;
 
-  try {
     const result = await generateJSON<VoiceScoreResult>(
       "You are a voice analysis expert. Return only valid JSON.",
       prompt,
@@ -62,6 +65,9 @@ Return JSON only, no other text:
 
     return NextResponse.json(result);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("Voice score error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Voice scoring failed" },

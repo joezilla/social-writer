@@ -107,7 +107,8 @@ async function readDir(dirPath: string): Promise<{ name: string; content: string
 
 async function ingest(
   contents: { title: string | null; content: string }[],
-  source: string
+  source: string,
+  userId: string
 ) {
   let totalChunks = 0;
 
@@ -131,6 +132,7 @@ async function ingest(
               : null,
             content: batch[j],
             embedding: Buffer.from(JSON.stringify(embeddings[j])),
+            userId,
           },
         });
       }
@@ -149,28 +151,43 @@ async function main() {
   }
 
   const source = flags.source || "manual";
+  const userEmail = flags.user;
+
+  if (!userEmail) {
+    console.error("--user <email> is required to specify which user's corpus to ingest into");
+    process.exit(1);
+  }
+
+  const user = await prisma.user.findUnique({ where: { email: userEmail } });
+  if (!user) {
+    console.error(`User not found: ${userEmail}`);
+    process.exit(1);
+  }
+
+  console.log(`Ingesting for user: ${user.email} (${user.id})`);
 
   if (flags.file) {
     console.log(`Ingesting file: ${flags.file}`);
     const content = await readFile(flags.file);
-    await ingest([{ title: flags.title || flags.file, content }], source);
+    await ingest([{ title: flags.title || flags.file, content }], source, user.id);
   } else if (flags.url) {
     console.log(`Fetching URL: ${flags.url}`);
     const content = await fetchUrl(flags.url);
-    await ingest([{ title: flags.title || flags.url, content }], source);
+    await ingest([{ title: flags.title || flags.url, content }], source, user.id);
   } else if (flags.dir) {
     console.log(`Ingesting directory: ${flags.dir}`);
     const files = await readDir(flags.dir);
     await ingest(
       files.map((f) => ({ title: f.name, content: f.content })),
-      source
+      source,
+      user.id
     );
   } else {
     console.log(
       "Usage:\n" +
-        "  npx tsx scripts/ingest-corpus.ts --file <path> --source <label>\n" +
-        "  npx tsx scripts/ingest-corpus.ts --url <url> --source <label>\n" +
-        "  npx tsx scripts/ingest-corpus.ts --dir <directory> --source <label>"
+        "  npx tsx scripts/ingest-corpus.ts --file <path> --source <label> --user <email>\n" +
+        "  npx tsx scripts/ingest-corpus.ts --url <url> --source <label> --user <email>\n" +
+        "  npx tsx scripts/ingest-corpus.ts --dir <directory> --source <label> --user <email>"
     );
     process.exit(1);
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateJSON } from "@/lib/claude";
+import { requireAuth, AuthError } from "@/lib/auth-context";
 
 interface FactCheckClaim {
   text: string;
@@ -14,29 +15,32 @@ export async function POST(
   _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const post = await prisma.post.findUnique({
-    where: { id: params.id },
-    include: { researchBrief: true },
-  });
+  try {
+    const { userId } = await requireAuth();
 
-  if (!post) {
-    return NextResponse.json({ error: "Post not found" }, { status: 404 });
-  }
+    const post = await prisma.post.findUnique({
+      where: { id: params.id },
+      include: { researchBrief: true },
+    });
 
-  if (!post.body.trim()) {
-    return NextResponse.json(
-      { error: "Post body is empty" },
-      { status: 400 }
-    );
-  }
+    if (!post || post.userId !== userId) {
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    }
 
-  // Get sources from research brief if available
-  let sourcesJson = "[]";
-  if (post.researchBrief) {
-    sourcesJson = post.researchBrief.sources;
-  }
+    if (!post.body.trim()) {
+      return NextResponse.json(
+        { error: "Post body is empty" },
+        { status: 400 }
+      );
+    }
 
-  const prompt = `You are a fact-checker. Check each factual claim in the article against the provided research sources.
+    // Get sources from research brief if available
+    let sourcesJson = "[]";
+    if (post.researchBrief) {
+      sourcesJson = post.researchBrief.sources;
+    }
+
+    const prompt = `You are a fact-checker. Check each factual claim in the article against the provided research sources.
 
 RESEARCH SOURCES:
 ${sourcesJson}
@@ -56,7 +60,6 @@ Return a JSON array only, no other text:
   }
 ]`;
 
-  try {
     const claims = await generateJSON<FactCheckClaim[]>(
       "You are a rigorous fact-checker. Return only valid JSON arrays.",
       prompt,
@@ -65,6 +68,9 @@ Return a JSON array only, no other text:
 
     return NextResponse.json({ claims });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("Fact check error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Fact check failed" },

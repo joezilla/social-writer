@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { exchangeCodeForToken } from "@/lib/linkedin";
+import { requireAuth } from "@/lib/auth-context";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -33,7 +34,8 @@ export async function GET(request: NextRequest) {
   cookieStore.delete("linkedin_oauth_state");
 
   try {
-    await exchangeCodeForToken(code);
+    const { userId } = await requireAuth();
+    await exchangeCodeForToken(code, userId);
     return NextResponse.redirect(new URL("/settings?linkedin=connected", request.url));
   } catch (err) {
     console.error("LinkedIn OAuth error:", err);

@@ -40,17 +40,13 @@ export const SETTING_DEFINITIONS: Record<string, SettingDef> = {
     group: "linkedin",
     description: "LinkedIn OAuth redirect URI",
   },
-  LINKEDIN_PROFILE_HANDLE: {
-    sensitive: false,
-    group: "linkedin",
-    description: "LinkedIn profile handle for scraping",
-  },
-  SCRAPER_CRON: {
-    sensitive: false,
-    group: "scraper",
-    description: "Cron schedule for LinkedIn scraper",
-  },
 };
+
+// Per-user setting keys
+export const USER_SETTING_KEYS = [
+  "LINKEDIN_PROFILE_HANDLE",
+  "SCRAPER_CRON",
+];
 
 // --- Cache ---
 
@@ -72,11 +68,11 @@ function getCache(): Map<string, CacheEntry> {
   return globalForSettings.settingsCache;
 }
 
-// --- Core functions ---
+// --- Core functions (global AppSettings) ---
 
 export async function getSetting(key: string): Promise<string | undefined> {
   const cache = getCache();
-  const cached = cache.get(key);
+  const cached = cache.get(`app:${key}`);
   if (cached && Date.now() < cached.expiresAt) {
     return cached.value;
   }
@@ -90,14 +86,14 @@ export async function getSetting(key: string): Promise<string | undefined> {
     } else {
       value = row.value;
     }
-    cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    cache.set(`app:${key}`, { value, expiresAt: Date.now() + CACHE_TTL_MS });
     return value;
   }
 
   // Fallback to env
   const envVal = process.env[key];
   if (envVal !== undefined) {
-    cache.set(key, { value: envVal, expiresAt: Date.now() + CACHE_TTL_MS });
+    cache.set(`app:${key}`, { value: envVal, expiresAt: Date.now() + CACHE_TTL_MS });
     return envVal;
   }
 
@@ -134,9 +130,8 @@ export async function setSetting(key: string, value: string): Promise<void> {
     create: { key, value: storeValue, iv, tag, encrypted: sensitive, group },
   });
 
-  // Update cache with plaintext
   const cache = getCache();
-  cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+  cache.set(`app:${key}`, { value, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
 export interface SettingInfo {
@@ -203,5 +198,88 @@ export async function deleteSetting(key: string): Promise<void> {
     // Ignore if not found
   });
   const cache = getCache();
-  cache.delete(key);
+  cache.delete(`app:${key}`);
+}
+
+// --- Per-user settings ---
+
+export async function getUserSetting(
+  userId: string,
+  key: string
+): Promise<string | undefined> {
+  const cache = getCache();
+  const cacheKey = `user:${userId}:${key}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.value;
+  }
+
+  const row = await prisma.userSetting.findUnique({
+    where: { userId_key: { userId, key } },
+  });
+
+  if (row) {
+    let value: string;
+    if (row.encrypted && row.iv && row.tag) {
+      value = decrypt(row.value, row.iv, row.tag);
+    } else {
+      value = row.value;
+    }
+    cache.set(cacheKey, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    return value;
+  }
+
+  return undefined;
+}
+
+export async function setUserSetting(
+  userId: string,
+  key: string,
+  value: string
+): Promise<void> {
+  await prisma.userSetting.upsert({
+    where: { userId_key: { userId, key } },
+    update: { value },
+    create: { userId, key, value },
+  });
+
+  const cache = getCache();
+  cache.set(`user:${userId}:${key}`, {
+    value,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+}
+
+export async function deleteUserSetting(
+  userId: string,
+  key: string
+): Promise<void> {
+  await prisma.userSetting
+    .delete({ where: { userId_key: { userId, key } } })
+    .catch(() => {});
+  const cache = getCache();
+  cache.delete(`user:${userId}:${key}`);
+}
+
+export async function getUserSettings(userId: string): Promise<
+  { key: string; value: string; description: string }[]
+> {
+  const rows = await prisma.userSetting.findMany({ where: { userId } });
+  return rows.map((r) => ({
+    key: r.key,
+    value: r.encrypted && r.iv && r.tag ? decrypt(r.value, r.iv, r.tag) : r.value,
+    description: r.key,
+  }));
+}
+
+/**
+ * Cascade: UserSetting → AppSetting → env var
+ */
+export async function getEffectiveSetting(
+  userId: string,
+  key: string
+): Promise<string | undefined> {
+  const userVal = await getUserSetting(userId, key);
+  if (userVal !== undefined) return userVal;
+  return getSetting(key);
 }

@@ -2,43 +2,45 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateText } from "@/lib/claude";
 import { buildVoiceContext } from "@/lib/voice-rag";
+import { requireAuth, AuthError } from "@/lib/auth-context";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const post = await prisma.post.findUnique({
-    where: { id: params.id },
-    include: {
-      researchBrief: true,
-    },
-  });
+  try {
+    const { userId } = await requireAuth();
 
-  if (!post) {
-    return NextResponse.json({ error: "Post not found" }, { status: 404 });
-  }
+    const post = await prisma.post.findUnique({
+      where: { id: params.id },
+      include: { researchBrief: true },
+    });
 
-  const body = await request.json().catch(() => ({}));
-  const targetLength = body.targetLength || 600;
-  const angle = body.angle || "";
-
-  // Build voice context from corpus
-  const voiceContext = await buildVoiceContext(post.title);
-
-  // Build research context if available
-  let briefSummary = "";
-  let keyClaims = "";
-  if (post.researchBrief) {
-    briefSummary = post.researchBrief.summary;
-    try {
-      const claims = JSON.parse(post.researchBrief.keyClaims);
-      keyClaims = claims.map((c: { claim: string }) => c.claim).join(", ");
-    } catch {
-      keyClaims = post.researchBrief.keyClaims;
+    if (!post || post.userId !== userId) {
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
     }
-  }
 
-  const systemPrompt = `You are a writing assistant for a specific author.
+    const body = await request.json().catch(() => ({}));
+    const targetLength = body.targetLength || 600;
+    const angle = body.angle || "";
+
+    // Build voice context from corpus (per-user)
+    const voiceContext = await buildVoiceContext(post.title, userId);
+
+    // Build research context if available
+    let briefSummary = "";
+    let keyClaims = "";
+    if (post.researchBrief) {
+      briefSummary = post.researchBrief.summary;
+      try {
+        const claims = JSON.parse(post.researchBrief.keyClaims);
+        keyClaims = claims.map((c: { claim: string }) => c.claim).join(", ");
+      } catch {
+        keyClaims = post.researchBrief.keyClaims;
+      }
+    }
+
+    const systemPrompt = `You are a writing assistant for a specific author.
 Your sole job is to write in their exact voice — not a generic AI voice, not a polished corporate voice, theirs.
 
 VOICE PROFILE (derived from their actual writing):
@@ -57,13 +59,12 @@ ${voiceContext}
 Write a LinkedIn article draft on the following topic. Match the author's voice exactly.
 Return only the article content — no preamble, no explanation, no "Here is your draft."`;
 
-  const userPrompt = `Topic: ${post.title}
+    const userPrompt = `Topic: ${post.title}
 ${angle ? `Angle: ${angle}` : ""}
 ${briefSummary ? `Research brief summary: ${briefSummary}` : ""}
 ${keyClaims ? `Key points to incorporate: ${keyClaims}` : ""}
 Target length: ${targetLength} words`;
 
-  try {
     const draft = await generateText(systemPrompt, userPrompt, 4096);
 
     // Save the draft to the post and create a version of the old body
@@ -91,6 +92,9 @@ Target length: ${targetLength} words`;
       postId: updated.id,
     });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("Draft generation error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Draft generation failed" },

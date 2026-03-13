@@ -22,7 +22,7 @@ export async function getAuthorizationUrl(state: string): Promise<string> {
   return `${LINKEDIN_AUTH_URL}?${params.toString()}`;
 }
 
-export async function exchangeCodeForToken(code: string) {
+export async function exchangeCodeForToken(code: string, userId: string) {
   const redirectUri = await requireSetting("LINKEDIN_REDIRECT_URI");
   const clientId = await requireSetting("LINKEDIN_CLIENT_ID");
   const clientSecret = await requireSetting("LINKEDIN_CLIENT_SECRET");
@@ -67,10 +67,19 @@ export async function exchangeCodeForToken(code: string) {
   const { ciphertext, iv, tag } = encrypt(accessToken);
   const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-  // Upsert: delete any existing token, store new one
-  await prisma.linkedInToken.deleteMany();
-  await prisma.linkedInToken.create({
-    data: {
+  // Upsert by userId
+  await prisma.linkedInToken.upsert({
+    where: { userId },
+    update: {
+      accessToken: ciphertext,
+      tokenIv: iv,
+      tokenTag: tag,
+      personUrn,
+      displayName,
+      expiresAt,
+    },
+    create: {
+      userId,
       accessToken: ciphertext,
       tokenIv: iv,
       tokenTag: tag,
@@ -83,13 +92,13 @@ export async function exchangeCodeForToken(code: string) {
   return { personUrn, displayName, expiresAt };
 }
 
-export async function getStoredToken(): Promise<{
+export async function getStoredToken(userId: string): Promise<{
   accessToken: string;
   personUrn: string;
   displayName: string;
   expiresAt: Date;
 } | null> {
-  const token = await prisma.linkedInToken.findFirst();
+  const token = await prisma.linkedInToken.findUnique({ where: { userId } });
   if (!token) return null;
 
   const accessToken = decrypt(token.accessToken, token.tokenIv, token.tokenTag);
@@ -101,8 +110,8 @@ export async function getStoredToken(): Promise<{
   };
 }
 
-export async function disconnectLinkedIn() {
-  await prisma.linkedInToken.deleteMany();
+export async function disconnectLinkedIn(userId: string) {
+  await prisma.linkedInToken.delete({ where: { userId } }).catch(() => {});
 }
 
 export async function publishPost(

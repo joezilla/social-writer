@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateJSON } from "@/lib/claude";
 import { searchMultipleQueries, type ExaResult } from "@/lib/exa";
+import { requireAuth, AuthError } from "@/lib/auth-context";
 
 interface SynthesizedBrief {
   summary: string;
@@ -14,19 +15,21 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const post = await prisma.post.findUnique({
-    where: { id: params.id },
-    include: { researchBrief: true },
-  });
-
-  if (!post) {
-    return NextResponse.json({ error: "Post not found" }, { status: 404 });
-  }
-
-  const body = await request.json().catch(() => ({}));
-  const topic = body.topic || post.title;
-
   try {
+    const { userId } = await requireAuth();
+
+    const post = await prisma.post.findUnique({
+      where: { id: params.id },
+      include: { researchBrief: true },
+    });
+
+    if (!post || post.userId !== userId) {
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const topic = body.topic || post.title;
+
     // Step 1: Generate search queries via Claude
     const queries = await generateJSON<string[]>(
       "You are a research query generator. Return only valid JSON.",
@@ -80,6 +83,7 @@ Return JSON only:
         summary: brief.summary,
         keyClaims: JSON.stringify(brief.keyClaims),
         sources: JSON.stringify(sources),
+        userId,
       },
     });
 
@@ -103,6 +107,9 @@ Return JSON only:
       queriesUsed: queries,
     });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("Research brief error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Research generation failed" },
@@ -115,26 +122,35 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const post = await prisma.post.findUnique({
-    where: { id: params.id },
-    include: { researchBrief: true },
-  });
+  try {
+    const { userId } = await requireAuth();
 
-  if (!post) {
-    return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    const post = await prisma.post.findUnique({
+      where: { id: params.id },
+      include: { researchBrief: true },
+    });
+
+    if (!post || post.userId !== userId) {
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    }
+
+    if (!post.researchBrief) {
+      return NextResponse.json({ brief: null });
+    }
+
+    const brief = post.researchBrief;
+    return NextResponse.json({
+      id: brief.id,
+      topic: brief.topic,
+      summary: brief.summary,
+      keyClaims: JSON.parse(brief.keyClaims),
+      sources: JSON.parse(brief.sources),
+      createdAt: brief.createdAt.toISOString(),
+    });
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    throw err;
   }
-
-  if (!post.researchBrief) {
-    return NextResponse.json({ brief: null });
-  }
-
-  const brief = post.researchBrief;
-  return NextResponse.json({
-    id: brief.id,
-    topic: brief.topic,
-    summary: brief.summary,
-    keyClaims: JSON.parse(brief.keyClaims),
-    sources: JSON.parse(brief.sources),
-    createdAt: brief.createdAt.toISOString(),
-  });
 }

@@ -214,7 +214,7 @@ async function scrapePostEngagement(
   }
 }
 
-async function runScrape(forceLogin: boolean) {
+async function runScrape(forceLogin: boolean, userId: string) {
   log("Starting LinkedIn scrape...");
 
   let browser;
@@ -248,6 +248,7 @@ async function runScrape(forceLogin: boolean) {
         data: {
           followerCount,
           source: "playwright",
+          userId,
         },
       });
       log(`Saved FollowerSnapshot: ${followerCount}`);
@@ -257,6 +258,7 @@ async function runScrape(forceLogin: boolean) {
     const cutoff = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
     const publishedPosts = await prisma.post.findMany({
       where: {
+        userId,
         status: "PUBLISHED",
         linkedinPostId: { not: null },
         publishedAt: { gte: cutoff },
@@ -300,17 +302,31 @@ async function main() {
   const forceLogin = args.includes("--login");
   const cronMode = args.includes("--cron");
 
+  // Resolve user
+  const userIdx = args.indexOf("--user");
+  const userEmail = userIdx >= 0 ? args[userIdx + 1] : process.env.SCRAPER_USER_EMAIL;
+  if (!userEmail) {
+    console.error("--user <email> or SCRAPER_USER_EMAIL env var is required");
+    process.exit(1);
+  }
+  const user = await prisma.user.findUnique({ where: { email: userEmail } });
+  if (!user) {
+    console.error(`User not found: ${userEmail}`);
+    process.exit(1);
+  }
+  log(`Scraping for user: ${user.email} (${user.id})`);
+
   if (cronMode) {
     const cron = await import("node-cron");
     const schedule = process.env.SCRAPER_CRON || "0 8 * * *"; // Default: 8am daily
     log(`Starting scraper in cron mode: ${schedule}`);
     cron.default.schedule(schedule, () => {
-      runScrape(false);
+      runScrape(false, user.id);
     });
     // Keep the process alive
     log("Scraper cron scheduled. Press Ctrl+C to stop.");
   } else {
-    await runScrape(forceLogin);
+    await runScrape(forceLogin, user.id);
     await prisma.$disconnect();
   }
 }
